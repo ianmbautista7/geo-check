@@ -73,8 +73,11 @@ that will not give you the same answer twice?
 - **Keyword sentiment misreads sarcasm and negation.** "Not bad" scores as negative.
 - **No causal claim.** If a business improves after acting on the advice, this tool cannot prove
   the advice caused it. Suggestions are hypotheses to test.
-- **Scores are not comparable across time.** Models get updated. Every row records the model
-  version and timestamp so old results stay interpretable.
+- **Scores are not comparable across time.** Models get updated and retired. The tool pins a
+  specific model version, falls back to a newer one only if the pinned model is shut down, and
+  records on every row which model actually answered.
+- **Free-tier rate limits.** Free API tiers cap requests per minute. The tool backs off and retries
+  (10s, 20s, 40s, 60s) instead of failing, so a full run is slower on the free tier but completes.
 - **Name collisions.** Handled with word-boundary matching and a per-business alias list, but an
   unusual business name can still produce false positives.
 
@@ -91,6 +94,7 @@ src/
   run_study.py         Runs several businesses, builds the leaderboard
 tests/
   test_scoring.py      12 tests covering the scoring logic
+  test_models.py       6 tests covering retries, rate limits, and model fallback
 docs/
   PRD.md               Product requirements: problem, metric, tradeoffs, risks
 data/                  Output CSVs and saved study results
