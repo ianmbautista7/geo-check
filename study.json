@@ -1,0 +1,14 @@
+{
+  "category": "coffee shop",
+  "city": "Burlingame, CA",
+  "businesses": [
+    {"name": "Goodthing Coffee", "aliases": ["Good Thing Coffee", "Goodthing"]},
+    {"name": "Blue Ridge Coffee", "aliases": []},
+    {"name": "Morning Fog Cafe", "aliases": []},
+    {"name": "Peninsula Roasters", "aliases": []},
+    {"name": "The Daily Grind", "aliases": []},
+    {"name": "Sunbeam Coffee Bar", "aliases": []},
+    {"name": "Corner Cup", "aliases": []},
+    {"name": "Alder & Oak Cafe", "aliases": []}
+  ]
+}

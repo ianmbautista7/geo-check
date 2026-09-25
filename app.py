@@ -27,35 +27,6 @@ import scoring
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-
-def load_keys_from_secrets():
-    """
-    Pull API keys out of Streamlit's secrets manager and into environment variables.
-
-    Why this exists: models.py reads keys with os.getenv(), because it has to work
-    from the command line too, where Streamlit isn't running. Streamlit Cloud stores
-    keys in st.secrets instead. This copies one into the other, so the same code
-    works locally and deployed without changing anything.
-
-    Wrapped in try/except because st.secrets raises if no secrets file exists,
-    which is normal when running locally.
-    """
-    for name in ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
-        try:
-            if name in st.secrets and not os.getenv(name):
-                os.environ[name] = st.secrets[name]
-        except Exception:
-            pass
-
-
-load_keys_from_secrets()
-
-
-def has_key(provider):
-    """True if a key for this provider is already available, so we can skip asking."""
-    return bool(os.getenv({"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY",
-                           "claude": "ANTHROPIC_API_KEY"}.get(provider, "")))
-
 st.set_page_config(page_title="GEO Check", page_icon="📊", layout="wide")
 
 
@@ -191,15 +162,11 @@ else:
         n_questions = c5.slider("Questions", 5, 20, 10)
         runs = c6.slider("Runs per question", 1, 3, 2)
 
-        if provider == "demo" or has_key(provider):
-            api_key = ""
-            st.caption("Key already configured. No need to enter one.")
-        else:
-            api_key = st.text_input("API key", type="password")
+        api_key = st.text_input("API key (not needed for demo)", type="password")
         go = st.form_submit_button("Run check")
 
     if go:
-        if provider != "demo" and not api_key and not has_key(provider):
+        if provider != "demo" and not api_key:
             st.error("That model needs an API key. Pick 'demo' to try it without one.")
             st.stop()
 
