@@ -140,45 +140,91 @@ def _ask_demo(question: str, model: str, business_name: str = "", run: int = 1) 
 PROVIDERS = {
     "claude": ("claude-sonnet-4-5", _ask_claude),
     "openai": ("gpt-4o-mini", _ask_openai),
-    "gemini": ("gemini-2.0-flash", _ask_gemini),
+    "gemini": ("gemini-3.5-flash", _ask_gemini),
     "demo": ("demo-v1", None),
 }
 
+# If the pinned model gets retired, try these next instead of crashing.
+# We pin a specific version first on purpose: "latest" aliases silently change
+# which model answers, and then this week's score and last month's score are
+# no longer measuring the same thing. The alias is only a safety net.
+FALLBACK_MODELS = {
+    "gemini": ["gemini-flash-latest", "gemini-2.5-flash"],
+}
+
+# Remembers which model actually answered, so every CSV row records the truth
+# even if a fallback kicked in.
+last_model_used = {}
+
+
+def _is_rate_limit(err) -> bool:
+    """Free tiers cap requests per minute. Those errors mean 'wait', not 'broken'."""
+    text = str(err).lower()
+    return "429" in text or "resource_exhausted" in text or "rate limit" in text or "quota" in text
+
+
+def _is_model_missing(err) -> bool:
+    """A 404 on the model name means it was renamed or retired."""
+    text = str(err).lower()
+    return "404" in text or "not found" in text or "not_found" in text
+
 
 def ask(provider: str, question: str, business_name: str = "", run: int = 1,
-        model: str = None, retries: int = 2) -> str:
+        model: str = None, retries: int = 4) -> str:
     """
     Ask one model one question and return the answer text.
 
     provider: "claude", "openai", "gemini", or "demo"
-    retries:  network calls fail sometimes. We retry with a growing wait
-              (1s, then 2s) instead of losing the whole run over one blip.
+    retries:  how many times to try again when a call fails.
+
+    Two kinds of failure get handled differently:
+      - Rate limit (free tier says "slow down"): wait a long time and retry.
+        Waits grow 10s, 20s, 40s, 60s so we back off instead of hammering.
+      - Model not found (renamed or retired): switch to the next fallback model.
+    Anything else: short wait (1s, 2s, 4s...) and retry, in case it was a blip.
     """
     if provider not in PROVIDERS:
         raise ModelError(f"Unknown provider: {provider}")
 
     default_model, fn = PROVIDERS[provider]
-    model = model or default_model
 
     if provider == "demo":
-        return _ask_demo(question, model, business_name, run)
+        last_model_used[provider] = model or default_model
+        return _ask_demo(question, model or default_model, business_name, run)
+
+    # Start with the last model that worked, so we don't re-discover a
+    # fallback on every single call.
+    candidates = [model] if model else [
+        last_model_used.get(provider, default_model),
+        default_model,
+        *FALLBACK_MODELS.get(provider, []),
+    ]
+    candidates = list(dict.fromkeys(c for c in candidates if c))  # dedupe, keep order
 
     last_error = None
-    for attempt in range(retries + 1):
-        try:
-            return fn(question, model)
-        except ModelError:
-            raise  # missing key: retrying will not help
-        except Exception as e:
-            last_error = e
-            if attempt < retries:
-                time.sleep(2 ** attempt)
-    raise ModelError(f"{provider} failed after {retries + 1} tries: {last_error}")
+    for current in candidates:
+        for attempt in range(retries + 1):
+            try:
+                answer = fn(question, current)
+                last_model_used[provider] = current
+                return answer
+            except ModelError:
+                raise  # missing key: retrying will not help
+            except Exception as e:
+                last_error = e
+                if _is_model_missing(e):
+                    break  # stop retrying this model, move to the next one
+                if attempt < retries:
+                    wait = min(60, 10 * 2 ** attempt) if _is_rate_limit(e) else 2 ** attempt
+                    time.sleep(wait)
+    raise ModelError(f"{provider} failed: {last_error}")
 
 
 def model_id(provider: str, model: str = None) -> str:
-    """The exact model version, recorded on every row so old results stay interpretable."""
-    return model or PROVIDERS.get(provider, (provider, None))[0]
+    """The exact model version that answered, recorded on every row so old results stay interpretable."""
+    if model:
+        return model
+    return last_model_used.get(provider) or PROVIDERS.get(provider, (provider, None))[0]
 
 
 if __name__ == "__main__":
