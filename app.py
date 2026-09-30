@@ -280,7 +280,7 @@ else:
         st.dataframe(pd.DataFrame([{"Business": ("⭐ " if r.get("is_target") else "") + r["business"],
                                     "Score": r["score"], "Mention rate": r["mention_rate"]}
                                    for r in study["results"]])
-                     .style.format({"Mention rate": "{:.0%}"}),
+                     .style.format({"Mention rate": "{:.0%}", "Score": "{:.1f}"}),
                      use_container_width=True, hide_index=True)
 
         # Streamlit Cloud forgets files when it restarts, so results have to go to GitHub.

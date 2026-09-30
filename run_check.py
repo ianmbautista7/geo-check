@@ -139,7 +139,9 @@ def summarize(rows, name):
     summary = scoring.visibility_score(usable)
     cons = scoring.consistency(usable)
     summary["business"] = name
-    summary["consistency"] = cons["label"]
+    # A business that's never named is "consistent" only in a useless sense.
+    # Showing "high" next to a 0% mention rate reads like good news, so say what it is.
+    summary["consistency"] = cons["label"] if summary["mentions"] else "never named"
     summary["consistency_spread"] = cons["spread"]
     summary["errors"] = len(rows) - len(usable)
     summary["suggestions"] = scoring.suggestions(summary, cons)
@@ -192,6 +194,7 @@ def build_study(target, category, city, providers, runs=2, num_questions=10,
     summaries.sort(key=lambda s: s["score"], reverse=True)
     study = {
         "target": target["name"],
+        "target_aliases": target.get("aliases", []),
         "category": category,
         "city": city,
         "providers": providers,
@@ -203,6 +206,37 @@ def build_study(target, category, city, providers, runs=2, num_questions=10,
         "run_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "results": summaries,
     }
+    return study, all_rows
+
+
+def rescore_study(answers_csv, study_json):
+    """
+    Re-score a published study from its saved answers, spending zero API calls.
+
+    Why: when the scoring logic improves (better advice, a bug fix), the old
+    answers are still valid evidence. Re-running the questions would cost a
+    day's free allowance and change the answers, so we reuse them instead.
+    """
+    import pandas as pd
+    df = pd.read_csv(answers_csv).fillna("")
+    with open(study_json) as f:
+        old = json.load(f)
+
+    first = df["business"].iloc[0]
+    answers = df[df["business"] == first][
+        ["question", "provider", "model", "run", "answer", "error", "timestamp"]
+    ].to_dict("records")
+
+    all_rows, summaries = [], []
+    for r in old["results"]:
+        target_aliases = old.get("target_aliases", []) if r.get("is_target") else []
+        rows = score_answers(answers, r["business"], target_aliases)
+        all_rows.extend(rows)
+        summary = summarize(rows, r["business"])
+        summary["is_target"] = r.get("is_target", False)
+        summaries.append(summary)
+    summaries.sort(key=lambda s: s["score"], reverse=True)
+    study = {**old, "results": summaries}
     return study, all_rows
 
 

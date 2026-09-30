@@ -27,9 +27,32 @@ the model brings them up unprompted.
 
 ## The finding
 
-> **RESULTS GO HERE ONCE THE REAL RUN IS DONE.**
-> Replace this block with the actual leaderboard, the gap between the top and bottom business,
-> and the biggest surprise. Do not publish demo numbers as real numbers.
+**First study: coffee shops in Burlingame, CA** (Sep 30, 2026, gemini-3.5-flash-lite, 10 questions x 2 runs = 20 answers)
+
+| Rank | Business | Score | Named in |
+|---|---|---|---|
+| 1 | Peet's Coffee | 69.9 | 70% of answers |
+| 2 | Philz Coffee | 60.5 | 50% |
+| 3 | Toasty Coffee Bar | 42.2 | 10% |
+| 4 | St. Frank Coffee | 39.0 | 25% |
+| 5 | Steelhead Coffee | 37.7 | 10% |
+| 6 | To Beans | 36.8 | 15% |
+| 7 | Canyon Market & Cafe | 35.1 | 15% |
+| 8 | Cafe Central | 32.5 | 25% |
+| 9 | **Goodthing Coffee** | **0.0** | **0 of 20** |
+
+Goodthing Coffee has 323 Yelp reviews and was covered by the San Francisco Chronicle when it
+opened. The AI didn't name it once. Strong review-site presence and AI visibility are not the
+same thing, and that gap is exactly what this tool is built to show.
+
+**What this result can and can't say:**
+- **One model.** All 20 answers came from gemini-3.5-flash-lite, a smaller model, because the
+  main model's free daily limit had been used. A larger model may know more. That's the next test.
+- **20 answers from one day.** Enough for a first measurement, not a final verdict.
+- **The competitor list is the AI's, unverified.** Models sometimes name places outside the city
+  or that don't exist. Checking the list by hand is part of reading the result.
+
+Every answer behind these numbers is in `study_answers.csv`.
 
 ## How the score works
 
@@ -68,6 +91,12 @@ each kind of failure gets its own response: a daily limit switches models immedi
 per-minute limit waits exactly as long as Google says, a bad key stops in about a second,
 a hung call times out at 60 seconds, and three failures in a row stop the run with the real
 error message. Each of those cases has a test built from the actual error text.
+
+**The first result gave bad advice.** For a business named in 0 answers, the tool told it to
+"get listed on Yelp." Goodthing already had 323 Yelp reviews. The suggestions are rule-based and
+can't see what a business already has, so the advice was rewritten to work either way. The
+published study was then re-scored from its saved answers, which costs zero API calls and left
+every score unchanged.
 
 ## Design decisions and what they cost
 

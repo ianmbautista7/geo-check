@@ -125,3 +125,9 @@ def test_top_recommended_counts_each_answer_once_and_merges_spellings():
     b = "1. philz coffee: mint mojito.\n2. Peet's Coffee: classic."
     top = scoring.top_recommended([a, b])
     assert top[0] == ("Philz Coffee", 2)   # 2 answers, not 3 mentions
+
+
+def test_extract_names_splits_on_every_kind_of_dash():
+    """Models use -, en dash, and em dash interchangeably between a name and its blurb."""
+    text = "1. Philz Coffee — great.\n2. Blue Bottle – nice.\n3. Peet's Coffee - ok."
+    assert scoring.extract_names(text) == ["Philz Coffee", "Blue Bottle", "Peet's Coffee"]

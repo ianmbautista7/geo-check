@@ -255,11 +255,11 @@
       "runs": 20,
       "mentions": 0,
       "business": "Goodthing Coffee",
-      "consistency": "high",
+      "consistency": "never named",
       "consistency_spread": 0.0,
       "errors": 0,
       "suggestions": [
-        "AI models never named you. Start with the basics they read from: claim and fill out your Google Business Profile, and get listed on Yelp and TripAdvisor with full hours, photos, and a description that uses your category and city in plain words."
+        "AI models never named you. Check the basics first (Google Business Profile, Yelp, your own site with hours, menu, and address). If those are already strong, reviews alone aren't reaching the models. Focus on what AI answers draw from: local 'best of' roundups, food blogs, news coverage, and Reddit threads that name you alongside the places that do get recommended."
       ],
       "by_model": {
         "gemini-3.5-flash-lite": {
@@ -274,5 +274,9 @@
       },
       "is_target": true
     }
+  ],
+  "target_aliases": [
+    "Good Thing Coffee",
+    "Goodthing"
   ]
 }

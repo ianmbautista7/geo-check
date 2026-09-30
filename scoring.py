@@ -228,10 +228,15 @@ def suggestions(summary, cons):
     rate = summary["mention_rate"]
 
     if rate == 0:
+        # Don't assume the basics are missing. The first real study told a business
+        # with 323 Yelp reviews to "get listed on Yelp". The tool can't see a
+        # business's listings, so the advice has to work either way.
         out.append(
-            "AI models never named you. Start with the basics they read from: claim and fill out "
-            "your Google Business Profile, and get listed on Yelp and TripAdvisor with full hours, "
-            "photos, and a description that uses your category and city in plain words."
+            "AI models never named you. Check the basics first (Google Business Profile, Yelp, "
+            "your own site with hours, menu, and address). If those are already strong, reviews "
+            "alone aren't reaching the models. Focus on what AI answers draw from: local 'best of' "
+            "roundups, food blogs, news coverage, and Reddit threads that name you alongside the "
+            "places that do get recommended."
         )
     elif rate < 0.4:
         out.append(
@@ -297,7 +302,7 @@ def extract_names(answer: str):
         if bold:
             name = bold.group(1)
         else:
-            name = re.split(r"\s[-–—]\s|:|\(", text, maxsplit=1)[0]
+            name = re.split(r"\s[-\u2013\u2014]\s|:|\(", text, maxsplit=1)[0]
         name = name.strip(" *_.,")
         if 2 <= len(name) <= 60 and name.lower() not in _NOT_NAMES:
             names.append(name)
