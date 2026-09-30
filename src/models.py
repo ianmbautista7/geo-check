@@ -26,7 +26,11 @@ SYSTEM_PROMPT = (
 
 
 class ModelError(Exception):
-    """Raised when a provider call fails for a reason worth showing the user."""
+    """A setup problem (bad key, missing library). Every call will fail the same way, so stop."""
+
+
+class CallFailed(Exception):
+    """One question failed even after retries. Could be a blip, so the run can keep going."""
 
 
 # ----------------------------------------------------------------------------
@@ -74,7 +78,9 @@ def _ask_gemini(question: str, model: str) -> str:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
         raise ModelError("GEMINI_API_KEY is not set.")
-    client = genai.Client(api_key=key)
+    # timeout is in milliseconds. Without it, a call that never gets an answer
+    # would wait forever and the app would look frozen.
+    client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=60_000))
     resp = client.models.generate_content(
         model=model,
         contents=question,
@@ -163,6 +169,23 @@ def _is_rate_limit(err) -> bool:
     return "429" in text or "resource_exhausted" in text or "rate limit" in text or "quota" in text
 
 
+def _is_auth_error(err) -> bool:
+    """
+    A bad or blocked key. Retrying won't fix it, so we stop immediately and say so.
+    Without this check the tool would quietly retry for minutes and look frozen.
+    """
+    text = str(err).lower()
+    return any(k in text for k in (
+        "401", "403", "api key not valid", "api_key_invalid", "invalid api key",
+        "permission_denied", "unauthenticated", "permission denied",
+    ))
+
+
+def _is_timeout(err) -> bool:
+    text = str(err).lower()
+    return "timed out" in text or "timeout" in text or "deadline" in text
+
+
 def _is_model_missing(err) -> bool:
     """A 404 on the model name means it was renamed or retired."""
     text = str(err).lower()
@@ -170,7 +193,7 @@ def _is_model_missing(err) -> bool:
 
 
 def ask(provider: str, question: str, business_name: str = "", run: int = 1,
-        model: str = None, retries: int = 4) -> str:
+        model: str = None, retries: int = 3) -> str:
     """
     Ask one model one question and return the answer text.
 
@@ -179,7 +202,7 @@ def ask(provider: str, question: str, business_name: str = "", run: int = 1,
 
     Two kinds of failure get handled differently:
       - Rate limit (free tier says "slow down"): wait a long time and retry.
-        Waits grow 10s, 20s, 40s, 60s so we back off instead of hammering.
+        Waits grow 10s, 20s, 40s so we back off instead of hammering.
       - Model not found (renamed or retired): switch to the next fallback model.
     Anything else: short wait (1s, 2s, 4s...) and retry, in case it was a blip.
     """
@@ -210,14 +233,27 @@ def ask(provider: str, question: str, business_name: str = "", run: int = 1,
                 return answer
             except ModelError:
                 raise  # missing key: retrying will not help
+            except ImportError as e:
+                raise ModelError(f"The {provider} library isn't installed: {e}")
             except Exception as e:
                 last_error = e
+                if _is_auth_error(e):
+                    raise ModelError(f"{provider} rejected the API key: {e}")
                 if _is_model_missing(e):
-                    break  # stop retrying this model, move to the next one
+                    break  # this model is gone: try the next candidate
+                if _is_timeout(e):
+                    # Already waited 60 seconds. Retrying means another 60. Skip it.
+                    raise CallFailed(f"{provider} ({current}) timed out: {e}")
                 if attempt < retries:
                     wait = min(60, 10 * 2 ** attempt) if _is_rate_limit(e) else 2 ** attempt
                     time.sleep(wait)
-    raise ModelError(f"{provider} failed: {last_error}")
+        else:
+            # Retries ran out on a model that DOES exist. Switching models won't
+            # help with a rate limit or an outage, so give up on this question.
+            raise CallFailed(f"{provider} ({current}) failed: {last_error}")
+
+    # Every candidate model came back "not found". That's a setup problem.
+    raise ModelError(f"None of the {provider} models were found. Last error: {last_error}")
 
 
 def model_id(provider: str, model: str = None) -> str:

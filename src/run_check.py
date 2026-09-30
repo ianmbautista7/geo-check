@@ -36,7 +36,7 @@ def slugify(text: str) -> str:
 
 
 def run_business(name, category, city, providers, runs=3, aliases=None,
-                 num_questions=20, verbose=True):
+                 num_questions=20, verbose=True, on_progress=None, max_failures_in_a_row=3):
     """
     Ask every question, on every model, the given number of times.
 
@@ -48,12 +48,20 @@ def run_business(name, category, city, providers, runs=3, aliases=None,
     So 20 questions x 2 models x 3 runs = 120 API calls. That number is why
     the PRD cares about cost. Each loop you add multiplies the bill.
 
+    on_progress: optional function called after every call as on_progress(done, total).
+                 The web app uses it to move a progress bar so you can see it working.
+    max_failures_in_a_row: if this many calls fail back to back, stop the whole run
+                 and raise the real error. One failure might be a blip. Three in a row
+                 means something is actually broken, and there's no point spending
+                 ten minutes proving it 60 times.
+
     Returns a list of row dicts, one per API call.
     """
     question_list = qbuilder.build_questions(category, city, limit=num_questions)
     rows = []
     total = len(question_list) * len(providers) * runs
     done = 0
+    failures_in_a_row = 0
 
     for question in question_list:
         for provider in providers:
@@ -62,10 +70,20 @@ def run_business(name, category, city, providers, runs=3, aliases=None,
                 try:
                     answer = models.ask(provider, question, business_name=name, run=run)
                     error = ""
-                except Exception as e:
+                    failures_in_a_row = 0
+                except models.ModelError as e:
+                    # Bad key, missing library, etc. Every other call will fail the
+                    # same way, so stop now and show the real reason.
+                    raise
+                except (models.CallFailed, Exception) as e:
                     # One failed call should not kill a 120-call job. We record
                     # the failure and keep going, then report how many failed.
                     answer, error = "", str(e)
+                    failures_in_a_row += 1
+                    if failures_in_a_row >= max_failures_in_a_row:
+                        raise models.ModelError(
+                            f"Stopped after {failures_in_a_row} failed calls in a row. "
+                            f"Last error: {e}")
 
                 found = scoring.find_mention(answer, name, aliases)
                 label, value = scoring.score_sentiment(found["snippet"])
@@ -89,6 +107,8 @@ def run_business(name, category, city, providers, runs=3, aliases=None,
                     "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 })
 
+                if on_progress:
+                    on_progress(done, total)
                 if verbose and done % 10 == 0:
                     print(f"  {done}/{total} calls done", flush=True)
 
