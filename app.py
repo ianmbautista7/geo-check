@@ -22,6 +22,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
+import models
 import run_check
 import scoring
 
@@ -209,16 +210,31 @@ else:
             os.environ[env_var] = api_key
 
         total = n_questions * runs
-        st.info(f"Making {total} API calls. This takes about {total * 2 // 60 + 1} minute(s).")
+        bar = st.progress(0.0, text=f"Asking the model... 0 of {total} answers back")
 
-        with st.spinner("Asking the model..."):
+        def update_bar(done, total):
+            # Called by run_check after every answer, so you can see it moving.
+            bar.progress(done / total, text=f"Asking the model... {done} of {total} answers back")
+
+        try:
             rows = run_check.run_business(
                 name, category, city, [provider], runs=runs,
                 aliases=[a.strip() for a in aliases.split(",") if a.strip()],
-                num_questions=n_questions, verbose=False,
+                num_questions=n_questions, verbose=False, on_progress=update_bar,
             )
-            summary = run_check.summarize(rows, name)
+        except models.ModelError as e:
+            # Setup problems (bad key, retired model, etc.) land here with the real
+            # reason, instead of a spinner that never stops.
+            bar.empty()
+            st.error(f"The check stopped: {e}")
+            st.caption(
+                "If this mentions the API key, check the key in the app's Secrets settings. "
+                "If it mentions a quota or rate limit, wait a minute and try fewer questions."
+            )
+            st.stop()
 
+        bar.empty()
+        summary = run_check.summarize(rows, name)
         st.success("Done")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Visibility score", f"{score_color(summary['score'])} {summary['score']}")

@@ -1,0 +1,268 @@
+"""
+models.py
+---------
+This file's only job: take a question, send it to an AI model, hand back the text answer.
+
+It supports three real providers (Claude, OpenAI, Gemini) plus a "demo" provider
+that fakes answers so you can run the whole tool with no API key and no cost.
+
+Everything downstream (scoring, charts) works on plain text, so it does not care
+which of these produced the answer. That separation is deliberate: swapping in a
+new model later means editing only this file.
+"""
+
+import hashlib
+import os
+import random
+import time
+
+# The prompt we wrap around every question. We ask for a numbered list because
+# a list gives us a clean, countable position for each business.
+SYSTEM_PROMPT = (
+    "You are a helpful local recommendation assistant. "
+    "Answer with a numbered list of 3 to 5 specific, real businesses by name. "
+    "Give one short sentence about each. Do not add extra commentary."
+)
+
+
+class ModelError(Exception):
+    """A setup problem (bad key, missing library). Every call will fail the same way, so stop."""
+
+
+class CallFailed(Exception):
+    """One question failed even after retries. Could be a blip, so the run can keep going."""
+
+
+# ----------------------------------------------------------------------------
+# Real providers
+# ----------------------------------------------------------------------------
+
+def _ask_claude(question: str, model: str) -> str:
+    import anthropic  # imported here so the app still runs without the package
+
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key:
+        raise ModelError("ANTHROPIC_API_KEY is not set.")
+    client = anthropic.Anthropic(api_key=key)
+    resp = client.messages.create(
+        model=model,
+        max_tokens=600,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": question}],
+    )
+    return "".join(block.text for block in resp.content if block.type == "text")
+
+
+def _ask_openai(question: str, model: str) -> str:
+    from openai import OpenAI
+
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise ModelError("OPENAI_API_KEY is not set.")
+    client = OpenAI(api_key=key)
+    resp = client.chat.completions.create(
+        model=model,
+        max_tokens=600,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ],
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _ask_gemini(question: str, model: str) -> str:
+    from google import genai
+    from google.genai import types
+
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise ModelError("GEMINI_API_KEY is not set.")
+    # timeout is in milliseconds. Without it, a call that never gets an answer
+    # would wait forever and the app would look frozen.
+    client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=60_000))
+    resp = client.models.generate_content(
+        model=model,
+        contents=question,
+        config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT),
+    )
+    return resp.text or ""
+
+
+# ----------------------------------------------------------------------------
+# Demo provider (no API key, no cost)
+# ----------------------------------------------------------------------------
+
+# Fake competitor names so demo answers look like real answers.
+_DEMO_COMPETITORS = [
+    "Blue Ridge Coffee", "Morning Fog Cafe", "Peninsula Roasters",
+    "The Daily Grind", "Sunbeam Coffee Bar", "Third Wave Coffee Co",
+    "Corner Cup", "Alder & Oak Cafe",
+]
+
+_DEMO_BLURBS = [
+    "A local favorite known for friendly service.",
+    "People rave about the atmosphere here.",
+    "Solid option, though it gets crowded at peak hours.",
+    "Consistently good quality and reasonable prices.",
+    "A bit hit or miss, but worth a try.",
+    "Excellent coffee and a great place to sit and work.",
+]
+
+
+def _ask_demo(question: str, model: str, business_name: str = "", run: int = 1) -> str:
+    """
+    Build a believable fake answer.
+
+    The randomness is SEEDED by question + model + run number. That means the
+    same inputs always give the same fake answer (so tests are repeatable), but
+    different runs give different answers (so the variability we are trying to
+    measure actually shows up).
+    """
+    seed_text = f"{question}|{model}|{run}"
+    seed = int(hashlib.md5(seed_text.encode()).hexdigest(), 16) % (2**32)
+    rng = random.Random(seed)
+
+    names = _DEMO_COMPETITORS[:]
+    rng.shuffle(names)
+    picks = names[:4]
+
+    # Insert the target business about 60% of the time, at a random spot.
+    # This is what makes the demo score land in a realistic middle range.
+    if business_name and rng.random() < 0.6:
+        slot = rng.randint(0, len(picks) - 1)
+        picks[slot] = business_name
+
+    lines = [f"Here are some good options:\n"]
+    for i, name in enumerate(picks, 1):
+        lines.append(f"{i}. {name} - {rng.choice(_DEMO_BLURBS)}")
+    return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------------
+# The one function the rest of the app calls
+# ----------------------------------------------------------------------------
+
+PROVIDERS = {
+    "claude": ("claude-sonnet-4-5", _ask_claude),
+    "openai": ("gpt-4o-mini", _ask_openai),
+    "gemini": ("gemini-3.5-flash", _ask_gemini),
+    "demo": ("demo-v1", None),
+}
+
+# If the pinned model gets retired, try these next instead of crashing.
+# We pin a specific version first on purpose: "latest" aliases silently change
+# which model answers, and then this week's score and last month's score are
+# no longer measuring the same thing. The alias is only a safety net.
+FALLBACK_MODELS = {
+    "gemini": ["gemini-flash-latest", "gemini-2.5-flash"],
+}
+
+# Remembers which model actually answered, so every CSV row records the truth
+# even if a fallback kicked in.
+last_model_used = {}
+
+
+def _is_rate_limit(err) -> bool:
+    """Free tiers cap requests per minute. Those errors mean 'wait', not 'broken'."""
+    text = str(err).lower()
+    return "429" in text or "resource_exhausted" in text or "rate limit" in text or "quota" in text
+
+
+def _is_auth_error(err) -> bool:
+    """
+    A bad or blocked key. Retrying won't fix it, so we stop immediately and say so.
+    Without this check the tool would quietly retry for minutes and look frozen.
+    """
+    text = str(err).lower()
+    return any(k in text for k in (
+        "401", "403", "api key not valid", "api_key_invalid", "invalid api key",
+        "permission_denied", "unauthenticated", "permission denied",
+    ))
+
+
+def _is_timeout(err) -> bool:
+    text = str(err).lower()
+    return "timed out" in text or "timeout" in text or "deadline" in text
+
+
+def _is_model_missing(err) -> bool:
+    """A 404 on the model name means it was renamed or retired."""
+    text = str(err).lower()
+    return "404" in text or "not found" in text or "not_found" in text
+
+
+def ask(provider: str, question: str, business_name: str = "", run: int = 1,
+        model: str = None, retries: int = 3) -> str:
+    """
+    Ask one model one question and return the answer text.
+
+    provider: "claude", "openai", "gemini", or "demo"
+    retries:  how many times to try again when a call fails.
+
+    Two kinds of failure get handled differently:
+      - Rate limit (free tier says "slow down"): wait a long time and retry.
+        Waits grow 10s, 20s, 40s so we back off instead of hammering.
+      - Model not found (renamed or retired): switch to the next fallback model.
+    Anything else: short wait (1s, 2s, 4s...) and retry, in case it was a blip.
+    """
+    if provider not in PROVIDERS:
+        raise ModelError(f"Unknown provider: {provider}")
+
+    default_model, fn = PROVIDERS[provider]
+
+    if provider == "demo":
+        last_model_used[provider] = model or default_model
+        return _ask_demo(question, model or default_model, business_name, run)
+
+    # Start with the last model that worked, so we don't re-discover a
+    # fallback on every single call.
+    candidates = [model] if model else [
+        last_model_used.get(provider, default_model),
+        default_model,
+        *FALLBACK_MODELS.get(provider, []),
+    ]
+    candidates = list(dict.fromkeys(c for c in candidates if c))  # dedupe, keep order
+
+    last_error = None
+    for current in candidates:
+        for attempt in range(retries + 1):
+            try:
+                answer = fn(question, current)
+                last_model_used[provider] = current
+                return answer
+            except ModelError:
+                raise  # missing key: retrying will not help
+            except ImportError as e:
+                raise ModelError(f"The {provider} library isn't installed: {e}")
+            except Exception as e:
+                last_error = e
+                if _is_auth_error(e):
+                    raise ModelError(f"{provider} rejected the API key: {e}")
+                if _is_model_missing(e):
+                    break  # this model is gone: try the next candidate
+                if _is_timeout(e):
+                    # Already waited 60 seconds. Retrying means another 60. Skip it.
+                    raise CallFailed(f"{provider} ({current}) timed out: {e}")
+                if attempt < retries:
+                    wait = min(60, 10 * 2 ** attempt) if _is_rate_limit(e) else 2 ** attempt
+                    time.sleep(wait)
+        else:
+            # Retries ran out on a model that DOES exist. Switching models won't
+            # help with a rate limit or an outage, so give up on this question.
+            raise CallFailed(f"{provider} ({current}) failed: {last_error}")
+
+    # Every candidate model came back "not found". That's a setup problem.
+    raise ModelError(f"None of the {provider} models were found. Last error: {last_error}")
+
+
+def model_id(provider: str, model: str = None) -> str:
+    """The exact model version that answered, recorded on every row so old results stay interpretable."""
+    if model:
+        return model
+    return last_model_used.get(provider) or PROVIDERS.get(provider, (provider, None))[0]
+
+
+if __name__ == "__main__":
+    print(ask("demo", "What are the best coffee shops in Burlingame, CA?",
+              business_name="Goodthing Coffee", run=1))

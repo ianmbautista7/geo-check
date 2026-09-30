@@ -8,7 +8,7 @@ places. Everyone else is invisible. There is no Search Console for that. GEO Che
 *GEO stands for generative engine optimization: the emerging practice of getting your business
 named inside AI answers, the way SEO gets you ranked inside Google results.*
 
-🔗 **[Live app](ADD_YOUR_STREAMLIT_URL_HERE)** · Built by [Ian Bautista](https://linkedin.com/in/ian-bautista-sjsu)
+🔗 **[Live app](https://geo-check-ian.streamlit.app/)** · Built by [Ian Bautista](https://linkedin.com/in/ian-bautista-sjsu)
 
 ---
 
@@ -94,7 +94,7 @@ src/
   run_study.py         Runs several businesses, builds the leaderboard
 tests/
   test_scoring.py      12 tests covering the scoring logic
-  test_models.py       6 tests covering retries, rate limits, and model fallback
+  test_models.py       11 tests covering bad keys, timeouts, rate limits, and model fallback
 docs/
   PRD.md               Product requirements: problem, metric, tradeoffs, risks
 data/                  Output CSVs and saved study results
