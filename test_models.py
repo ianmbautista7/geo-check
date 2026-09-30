@@ -1,11 +1,11 @@
 """
 test_models.py
 --------------
-Tests for how models.py handles failures. Run with:  python -m pytest tests -q
+Tests for how models.py handles failures. Run with:  python -m pytest -q
 
-We never call a real API here. Instead we swap in a fake "Gemini" function
-that fails on purpose, so we can prove the retry and fallback logic works
-without a key, without cost, and without waiting.
+No real API calls. We swap in a fake "Gemini" that fails on purpose, so we can
+prove each failure is handled right without a key, without cost, and without waiting.
+Several of these tests use the exact error text the live app got from Google.
 """
 
 import os
@@ -13,124 +13,157 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import models
+import run_check
+
+# The real message Google returned when the free daily allowance ran out.
+REAL_DAILY_LIMIT_ERROR = (
+    "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota. "
+    "Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, "
+    "limit: 20, model: gemini-3.5-flash\\nPlease retry in 22.207691463s.', 'status': 'RESOURCE_EXHAUSTED', "
+    "'details': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}, {'retryDelay': '22s'}]}}"
+)
 
 
 @pytest.fixture(autouse=True)
 def no_waiting(monkeypatch):
-    """Replace time.sleep so retry waits are instant, and record how long we'd have waited."""
+    """Make retry waits instant, record how long we would have waited, and reset state."""
     waits = []
     monkeypatch.setattr(models.time, "sleep", lambda s: waits.append(s))
     models.last_model_used.clear()
+    models._exhausted_today.clear()
     return waits
 
 
 def use_fake_gemini(monkeypatch, fake):
-    monkeypatch.setitem(models.PROVIDERS, "gemini", ("gemini-3.5-flash", fake))
+    monkeypatch.setitem(models.PROVIDERS, "gemini", ("gemini-3.5-flash", fake, "GEMINI_API_KEY"))
 
 
-def test_retired_model_falls_back_to_the_next_one(monkeypatch):
-    """If Google retires the pinned model, we switch to a fallback instead of crashing."""
-    def fake(question, model):
+def test_daily_limit_moves_to_the_next_model_without_waiting(monkeypatch, no_waiting):
+    """This is the error that broke the live app. One model out for the day, the next still has its own 20."""
+    def fake(q, model, key):
         if model == "gemini-3.5-flash":
-            raise Exception("404 NOT_FOUND: model not found")
+            raise Exception(REAL_DAILY_LIMIT_ERROR)
         return f"1. Goodthing Coffee - answered by {model}"
 
     use_fake_gemini(monkeypatch, fake)
-    answer = models.ask("gemini", "best coffee?")
-    assert "gemini-flash-latest" in answer
-    assert models.model_id("gemini") == "gemini-flash-latest"  # the CSV records the truth
+    assert "gemini-3.5-flash-lite" in models.ask("gemini", "q", api_key="k")
+    assert no_waiting == []                                     # no pointless 22s wait
+    assert models.model_id("gemini") == "gemini-3.5-flash-lite"  # CSV records the real model
 
 
-def test_rate_limit_waits_longer_then_succeeds(monkeypatch, no_waiting):
-    """Free tier says 'slow down' twice, then lets us through. We wait 10s, then 20s."""
-    calls = {"n": 0}
+def test_exhausted_model_is_skipped_on_later_calls(monkeypatch):
+    tried = []
 
-    def fake(question, model):
-        calls["n"] += 1
-        if calls["n"] <= 2:
-            raise Exception("429 RESOURCE_EXHAUSTED: quota exceeded")
-        return "1. Corner Cup - fine"
-
-    use_fake_gemini(monkeypatch, fake)
-    assert models.ask("gemini", "best coffee?").startswith("1.")
-    assert no_waiting == [10, 20]   # waited longer each time, then got through
-
-
-def test_ordinary_blip_uses_short_waits(monkeypatch, no_waiting):
-    calls = {"n": 0}
-
-    def fake(question, model):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise Exception("connection reset")
+    def fake(q, model, key):
+        tried.append(model)
+        if model == "gemini-3.5-flash":
+            raise Exception(REAL_DAILY_LIMIT_ERROR)
         return "ok"
 
     use_fake_gemini(monkeypatch, fake)
-    assert models.ask("gemini", "q") == "ok"
-    assert no_waiting == [1]
+    models.ask("gemini", "q1", api_key="k")
+    models.last_model_used.clear()           # even forgetting the last model...
+    models.ask("gemini", "q2", api_key="k")
+    assert tried.count("gemini-3.5-flash") == 1   # ...we don't hit the empty one twice
 
 
-def test_missing_key_fails_fast_without_retrying(monkeypatch, no_waiting):
-    """No key is not a temporary problem. Retrying would just waste a minute."""
-    def fake(question, model):
-        raise models.ModelError("GEMINI_API_KEY is not set.")
+def test_every_model_out_for_the_day_says_so_plainly(monkeypatch):
+    def fake(q, model, key):
+        raise Exception(REAL_DAILY_LIMIT_ERROR)
 
     use_fake_gemini(monkeypatch, fake)
-    with pytest.raises(models.ModelError):
-        models.ask("gemini", "q")
+    with pytest.raises(models.ModelError, match="resets at midnight Pacific"):
+        models.ask("gemini", "q", api_key="k")
+
+
+def test_per_minute_limit_waits_as_long_as_google_says(monkeypatch, no_waiting):
+    calls = {"n": 0}
+
+    def fake(q, model, key):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise Exception("429 RESOURCE_EXHAUSTED: too many requests per minute. Please retry in 7.5s.")
+        return "ok"
+
+    use_fake_gemini(monkeypatch, fake)
+    assert models.ask("gemini", "q", api_key="k") == "ok"
+    assert no_waiting == [8.5]   # Google's number plus a 1 second cushion
+
+
+def test_wait_time_containing_403_is_not_mistaken_for_a_bad_key():
+    assert not models._is_auth_error("429 quota exceeded, please retry in 22.4031s")
+    assert models._is_auth_error("403 Forbidden")
+
+
+def test_bad_key_stops_immediately(monkeypatch, no_waiting):
+    def fake(q, model, key):
+        raise Exception("400 INVALID_ARGUMENT: API key not valid. Please pass a valid API key.")
+
+    use_fake_gemini(monkeypatch, fake)
+    with pytest.raises(models.ModelError, match="rejected the API key"):
+        models.ask("gemini", "q", api_key="k")
     assert no_waiting == []
 
 
-def test_gives_up_on_one_question_without_trying_every_backup(monkeypatch, no_waiting):
-    """A server error isn't fixed by switching models, so we don't triple the wait."""
+def test_missing_key_is_caught_before_calling(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(models.ModelError, match="No API key"):
+        models.ask("gemini", "q")
+
+
+def test_retired_model_falls_back(monkeypatch):
+    def fake(q, model, key):
+        if model == "gemini-3.5-flash":
+            raise Exception("404 NOT_FOUND: model not found")
+        return f"answered by {model}"
+
+    use_fake_gemini(monkeypatch, fake)
+    assert "flash-lite" in models.ask("gemini", "q", api_key="k")
+
+
+def test_server_error_gives_up_on_one_question_without_trying_every_backup(monkeypatch, no_waiting):
     tried = []
 
-    def fake(question, model):
+    def fake(q, model, key):
         tried.append(model)
         raise Exception("500 internal error")
 
     use_fake_gemini(monkeypatch, fake)
     with pytest.raises(models.CallFailed):
-        models.ask("gemini", "q")
-    assert set(tried) == {"gemini-3.5-flash"}   # never touched the backups
-    assert no_waiting == [1, 2, 4]              # short waits, then gave up
+        models.ask("gemini", "q", api_key="k")
+    assert set(tried) == {"gemini-3.5-flash"}
+    assert no_waiting == [1, 2, 4]
 
 
-def test_bad_key_stops_immediately(monkeypatch, no_waiting):
-    """This is the bug that made the app look frozen: a rejected key got retried for minutes."""
-    def fake(question, model):
-        raise Exception("400 INVALID_ARGUMENT: API key not valid. Please pass a valid API key.")
+def test_timeout_is_not_retried(monkeypatch):
+    calls = {"n": 0}
 
-    use_fake_gemini(monkeypatch, fake)
-    with pytest.raises(models.ModelError, match="rejected the API key"):
-        models.ask("gemini", "q")
-    assert no_waiting == []
-
-
-def test_every_model_missing_is_a_setup_error(monkeypatch):
-    def fake(question, model):
-        raise Exception("404 NOT_FOUND")
+    def fake(q, model, key):
+        calls["n"] += 1
+        raise Exception("ReadTimeout: The read operation timed out")
 
     use_fake_gemini(monkeypatch, fake)
-    with pytest.raises(models.ModelError, match="None of the gemini models"):
-        models.ask("gemini", "q")
+    with pytest.raises(models.CallFailed, match="timed out"):
+        models.ask("gemini", "q", api_key="k")
+    assert calls["n"] == 1
 
 
-def test_demo_mode_needs_no_key():
-    answer = models.ask("demo", "best coffee?", business_name="Goodthing Coffee", run=1)
-    assert answer.startswith("Here are some good options")
+def test_each_caller_uses_their_own_key(monkeypatch):
+    """Two visitors on the web app at once must never end up on each other's keys."""
+    seen = []
+    use_fake_gemini(monkeypatch, lambda q, model, key: seen.append(key) or "ok")
+    models.ask("gemini", "q", api_key="visitor-A")
+    models.ask("gemini", "q", api_key="visitor-B")
+    assert seen == ["visitor-A", "visitor-B"]
 
 
 def test_run_stops_early_instead_of_grinding_through_every_question(monkeypatch):
-    """Three failures in a row means something is broken. Stop and say so."""
-    import run_check
-
     calls = {"n": 0}
 
-    def always_fails(*args, **kwargs):
+    def always_fails(*a, **k):
         calls["n"] += 1
         raise models.CallFailed("503 service unavailable")
 
@@ -138,12 +171,30 @@ def test_run_stops_early_instead_of_grinding_through_every_question(monkeypatch)
     with pytest.raises(models.ModelError, match="3 failed calls in a row"):
         run_check.run_business("Goodthing Coffee", "coffee shop", "Burlingame, CA",
                                ["gemini"], runs=1, num_questions=20, verbose=False)
-    assert calls["n"] == 3   # stopped at 3, not 20
+    assert calls["n"] == 3
+
+
+def test_study_asks_once_no_matter_how_many_businesses(monkeypatch):
+    """8 competitors should cost the same as 1. The first version would have cost 8x."""
+    calls = {"n": 0}
+
+    def fake_ask(provider, question, **k):
+        calls["n"] += 1
+        return ("1. **Philz Coffee** - great.\n2. **Goodthing Coffee** - cozy.\n"
+                "3. **Blue Bottle Coffee** - pour-overs.\n4. Peet's Coffee - classic.")
+
+    monkeypatch.setattr(models, "ask", fake_ask)
+    study, rows = run_check.build_study({"name": "Goodthing Coffee", "aliases": []},
+                                        "coffee shop", "Burlingame, CA", ["gemini"],
+                                        runs=2, num_questions=5)
+    assert calls["n"] == 10                              # 5 questions x 2 runs, total
+    names = [r["business"] for r in study["results"]]
+    assert "Philz Coffee" in names and "Goodthing Coffee" in names
+    assert names.count("Goodthing Coffee") == 1          # target not duplicated as a "competitor"
+    assert next(r for r in study["results"] if r["business"] == "Goodthing Coffee")["is_target"]
 
 
 def test_progress_callback_reports_every_call():
-    import run_check
-
     seen = []
     run_check.run_business("Goodthing Coffee", "coffee shop", "Burlingame, CA", ["demo"],
                            runs=1, num_questions=4, verbose=False,
@@ -151,15 +202,5 @@ def test_progress_callback_reports_every_call():
     assert seen == [(1, 4), (2, 4), (3, 4), (4, 4)]
 
 
-def test_timeout_is_not_retried(monkeypatch, no_waiting):
-    """A call that already hung for 60 seconds gets skipped, not retried three more times."""
-    calls = {"n": 0}
-
-    def fake(question, model):
-        calls["n"] += 1
-        raise Exception("ReadTimeout: The read operation timed out")
-
-    use_fake_gemini(monkeypatch, fake)
-    with pytest.raises(models.CallFailed, match="timed out"):
-        models.ask("gemini", "q")
-    assert calls["n"] == 1
+def test_demo_mode_needs_no_key():
+    assert models.ask("demo", "best coffee?", business_name="Goodthing Coffee").startswith("Here are")

@@ -265,3 +265,63 @@ def suggestions(summary, cons):
         )
 
     return out[:3]
+
+
+# ----------------------------------------------------------------------------
+# 5. Discover who the AI actually recommends
+# ----------------------------------------------------------------------------
+
+# Words that start a list item but aren't a business name.
+_NOT_NAMES = {"here", "these", "some", "note", "tip", "tips", "overall", "honorable mention"}
+
+
+def extract_names(answer: str):
+    """
+    Pull the business names out of one answer, in the order they appear.
+
+    Models write list items like:
+        1. **Blue Bottle Coffee** - Known for pour-overs.
+        2. Philz Coffee: Custom blends made to order.
+    We strip the number and the bold markers, then keep the text before the first
+    dash, colon, or parenthesis. That's the name.
+
+    Why this matters: instead of us guessing which competitors to compare against,
+    the answers tell us. Whoever the AI names most often IS the competition.
+    """
+    names = []
+    for item in split_items(answer):
+        if not re.match(r"^\s*(\d+[\.\)]|[-*•])\s+", item):
+            continue  # only real list items, not intro sentences
+        text = re.sub(r"^\s*(\d+[\.\)]|[-*•])\s+", "", item)
+        bold = re.match(r"\*\*(.+?)\*\*", text)
+        if bold:
+            name = bold.group(1)
+        else:
+            name = re.split(r"\s[-–—]\s|:|\(", text, maxsplit=1)[0]
+        name = name.strip(" *_.,")
+        if 2 <= len(name) <= 60 and name.lower() not in _NOT_NAMES:
+            names.append(name)
+    return names
+
+
+def top_recommended(answers, limit=8):
+    """
+    Count how many answers name each business and return the most-named ones.
+
+    Spellings get merged ("Philz Coffee" and "philz coffee" are one business), and
+    we display whichever spelling the models used most.
+    Returns a list of (display_name, answers_mentioning_it).
+    """
+    counts, spellings = {}, {}
+    for a in answers:
+        seen_here = set()
+        for name in extract_names(a):
+            key = normalize(name)
+            if not key or key in seen_here:
+                continue
+            seen_here.add(key)
+            counts[key] = counts.get(key, 0) + 1
+            spellings.setdefault(key, {}).setdefault(name, 0)
+            spellings[key][name] += 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return [(max(spellings[k], key=spellings[k].get), n) for k, n in ranked]

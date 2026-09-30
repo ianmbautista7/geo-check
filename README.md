@@ -15,10 +15,11 @@ named inside AI answers, the way SEO gets you ranked inside Google results.*
 ## What it does
 
 1. Takes a business name, category, and city
-2. Builds 20 realistic buyer questions for that category, **never containing the business name**
-3. Asks each question to 2-3 AI models, 3 times each
-4. Measures whether the business was named, how early, and in what tone
-5. Returns a 0-100 Visibility Score and three plain-English next steps
+2. Asks an AI model realistic customer questions for that category, **never containing the business name**
+3. Pulls every business the AI recommends out of the answers, so the competitors are
+   discovered from the data instead of hand-picked
+4. Scores the target business and each competitor on mention rate, list position, and tone
+5. Returns a 0-100 Visibility Score, a leaderboard, and three plain-English next steps
 
 The business name is deliberately left out of every question. If we asked "is Goodthing Coffee
 good?" the model would talk about Goodthing regardless. The only result worth having is whether
@@ -46,24 +47,36 @@ Visibility Score = 60 × mention_rate + 25 × position_score + 15 × sentiment_s
 50 that swings run to run are different problems needing different fixes. Averaging them into one
 number would hide which one you have.
 
-## The part that was actually hard
+## The parts that were actually hard
 
 **The models give a different answer every time you ask.** Ask the same question twice and a
 business can appear once and vanish once. A single run is not a measurement, it is a coin flip.
+That's why every question runs more than once, and why the tool reports a consistency rating
+alongside the score.
 
-That is why every question runs 3 times, and why the tool reports a consistency rating alongside
-the score. An unstable mention means thin evidence about you online, and the fix is different from
-the fix for a stable low score.
+**The free API tier allows about 20 requests per model per day.** The first design asked each
+question separately for every business: 8 businesses x 20 questions x 3 runs = 480 calls. That
+could never run for free. The fix came from the design itself: since the business name is never
+in the question, one answer can be scored for every business at once. The same comparison now
+costs 20 calls. When one model's daily allowance runs out, the tool moves to another model that
+still has its own, and records which model produced every answer.
 
-This is the same problem anyone shipping an AI feature has to solve: how do you evaluate a system
-that will not give you the same answer twice?
+**The first live version looked frozen.** When a call failed, the code retried quietly, then
+tried backup models and retried those too, with no time limit and nothing on screen. It turned
+out the free daily limit had been hit, and the retries themselves had burned through it. Now
+each kind of failure gets its own response: a daily limit switches models immediately, a
+per-minute limit waits exactly as long as Google says, a bad key stops in about a second,
+a hung call times out at 60 seconds, and three failures in a row stop the run with the real
+error message. Each of those cases has a test built from the actual error text.
 
 ## Design decisions and what they cost
 
 | Decision | Chose | Gave up | Why |
 |---|---|---|---|
 | Sentiment | Keyword lexicon | LLM-judged sentiment | Free, instant, auditable. Using an AI to grade an AI adds cost and a second layer of randomness to debug. It is crude on sarcasm, and that is a known limitation. |
-| Runs per question | 3 | Tighter statistics | Enough to see whether a mention is stable. Cost and runtime scale linearly with this number. |
+| Runs per question | 2 | Tighter statistics | Enough to see whether a mention is stable while fitting the free daily limit. Cost scales linearly with this number. |
+| Competitors | Discovered from answers | A hand-picked list | Whoever the AI names most IS the competition. Picking them ourselves would bake our guesses into the result. |
+| API key on the live site | Visitors bring their own | Letting anyone use the owner's key | The free tier is tiny. One curious visitor could use up a day's allowance. |
 | Models | 2-3 | Full coverage | Each model multiplies cost and runtime. Two disagreeing models already proves the variance point. |
 | Storage | CSV | A database | No accounts in v1, so nothing needs to persist between users. CSV opens in Excel, which is what a business owner actually wants. |
 | Questions | Fixed templates | AI-generated questions | Templates are identical run to run, so a score change reflects the business, not a reshuffled question set. |
@@ -84,20 +97,18 @@ that will not give you the same answer twice?
 ## Repo layout
 
 ```
-app.py                 Streamlit web app (the part people click)
-study.json             Which businesses to compare
-src/
-  questions.py         Question templates, fills in category and city
-  models.py            Talks to Claude / OpenAI / Gemini, plus a free demo mode
-  scoring.py           Mention detection, position, sentiment, the score itself
-  run_check.py         Runs one business end to end, writes the CSV
-  run_study.py         Runs several businesses, builds the leaderboard
-tests/
-  test_scoring.py      12 tests covering the scoring logic
-  test_models.py       11 tests covering bad keys, timeouts, rate limits, and model fallback
-docs/
-  PRD.md               Product requirements: problem, metric, tradeoffs, risks
-data/                  Output CSVs and saved study results
+app.py              Streamlit web app (the part people click)
+questions.py        Question templates, fills in category and city
+models.py           Talks to Gemini / OpenAI / Claude, handles limits and failures, plus a free demo mode
+scoring.py          Mention detection, position, sentiment, the score, competitor discovery
+run_check.py        Collects answers once and scores any number of businesses from them
+run_study.py        Command-line version of the study
+study.json          Which business the command-line study checks
+study_results.json  The published study the app shows (appears after the first real run)
+study_answers.csv   Every AI answer behind the study, for anyone who wants to check
+test_scoring.py     Tests for the scoring and competitor discovery
+test_models.py      Tests for every failure case, using real error text from the API
+docs/PRD.md         Product requirements: problem, metric, tradeoffs, risks
 ```
 
 ## Run it yourself
@@ -108,27 +119,21 @@ cd geo-check
 pip install -r requirements.txt
 
 # Try it with no API key and no cost:
-python src/run_check.py --name "Goodthing Coffee" --category "coffee shop" \
-  --city "Burlingame, CA" --providers demo --runs 3
+python run_check.py --name "Goodthing Coffee" --category "coffee shop" --city "Burlingame, CA" --providers demo
 
-# With a real model (get a free key at aistudio.google.com):
-cp .env.example .env     # paste your key into .env
-python src/run_check.py --name "Goodthing Coffee" --category "coffee shop" \
-  --city "Burlingame, CA" --providers gemini --runs 3
-
-# Compare several businesses:
-python src/run_study.py --config study.json --providers gemini --runs 3
+# With a real model (free key at aistudio.google.com):
+export GEMINI_API_KEY=your-key
+python run_study.py --providers gemini --runs 2 --questions 10
 
 # Launch the web app:
 streamlit run app.py
 
 # Run the tests:
-python -m pytest tests -q
+python -m pytest -q
 ```
 
-**Demo mode** generates realistic fake answers with no API key and no cost, so you can see how the
-tool works before spending anything. Demo numbers are clearly labeled and are never presented as
-real results.
+**Demo mode** generates fake answers with no API key and no cost, so you can see how the tool
+works before spending anything. Demo results are labeled as fake and never published as real.
 
 ## Stack
 

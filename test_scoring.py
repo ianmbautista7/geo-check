@@ -11,7 +11,7 @@ down the behavior so a later change can't silently break it.
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import scoring
 
@@ -107,3 +107,21 @@ def test_paragraph_answers_still_get_parsed():
     r = scoring.find_mention(text, "Goodthing Coffee")
     assert r["mentioned"] is True
     assert r["position"] == 2
+
+
+def test_extract_names_handles_common_answer_formats():
+    answer = """Here are some picks:
+
+1. **Philz Coffee** - Custom blends.
+2. **Blue Bottle Coffee**: Pour-overs.
+3. Goodthing Coffee - Cozy local spot.
+4. Starbucks (Burlingame Ave) - Reliable chain."""
+    assert scoring.extract_names(answer) == [
+        "Philz Coffee", "Blue Bottle Coffee", "Goodthing Coffee", "Starbucks"]
+
+
+def test_top_recommended_counts_each_answer_once_and_merges_spellings():
+    a = "1. **Philz Coffee** - great.\n2. Philz Coffee again - dup in same answer."
+    b = "1. philz coffee: mint mojito.\n2. Peet's Coffee: classic."
+    top = scoring.top_recommended([a, b])
+    assert top[0] == ("Philz Coffee", 2)   # 2 answers, not 3 mentions
