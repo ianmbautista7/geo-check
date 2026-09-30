@@ -1,0 +1,278 @@
+{
+  "target": "Goodthing Coffee",
+  "category": "coffee shop",
+  "city": "Burlingame, CA",
+  "providers": [
+    "gemini"
+  ],
+  "models_used": [
+    "gemini-3.5-flash-lite"
+  ],
+  "runs": 2,
+  "questions": 10,
+  "api_calls": 20,
+  "failed_calls": 0,
+  "run_date": "2026-09-30",
+  "results": [
+    {
+      "score": 69.9,
+      "mention_rate": 0.7,
+      "avg_position": 2.07,
+      "avg_position_score": 0.688,
+      "avg_sentiment": 0.714,
+      "runs": 20,
+      "mentions": 14,
+      "business": "Peet's Coffee",
+      "consistency": "low",
+      "consistency_spread": 0.4,
+      "errors": 0,
+      "suggestions": [
+        "You already show up in most answers. Protect that by keeping your listings current and adding fresh third-party mentions a few times a year.",
+        "Your mentions are unstable, appearing in some runs and not others. That usually means thin evidence about you online. More independent sources saying the same things about you makes the mention stick."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 69.9,
+          "mention_rate": 0.7,
+          "avg_position": 2.07,
+          "avg_position_score": 0.688,
+          "avg_sentiment": 0.714,
+          "runs": 20,
+          "mentions": 14
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 60.5,
+      "mention_rate": 0.5,
+      "avg_position": 1.7,
+      "avg_position_score": 0.828,
+      "avg_sentiment": 0.65,
+      "runs": 20,
+      "mentions": 10,
+      "business": "Philz Coffee",
+      "consistency": "low",
+      "consistency_spread": 0.387,
+      "errors": 0,
+      "suggestions": [
+        "You already show up in most answers. Protect that by keeping your listings current and adding fresh third-party mentions a few times a year.",
+        "Your mentions are unstable, appearing in some runs and not others. That usually means thin evidence about you online. More independent sources saying the same things about you makes the mention stick."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 60.5,
+          "mention_rate": 0.5,
+          "avg_position": 1.7,
+          "avg_position_score": 0.828,
+          "avg_sentiment": 0.65,
+          "runs": 20,
+          "mentions": 10
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 42.2,
+      "mention_rate": 0.1,
+      "avg_position": 1.0,
+      "avg_position_score": 1.0,
+      "avg_sentiment": 0.75,
+      "runs": 20,
+      "mentions": 2,
+      "business": "Toasty Coffee Bar",
+      "consistency": "medium",
+      "consistency_spread": 0.2,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 42.2,
+          "mention_rate": 0.1,
+          "avg_position": 1.0,
+          "avg_position_score": 1.0,
+          "avg_sentiment": 0.75,
+          "runs": 20,
+          "mentions": 2
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 39.0,
+      "mention_rate": 0.25,
+      "avg_position": 2.2,
+      "avg_position_score": 0.6,
+      "avg_sentiment": 0.6,
+      "runs": 20,
+      "mentions": 5,
+      "business": "St. Frank Coffee",
+      "consistency": "low",
+      "consistency_spread": 0.335,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most.",
+        "Your mentions are unstable, appearing in some runs and not others. That usually means thin evidence about you online. More independent sources saying the same things about you makes the mention stick."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 39.0,
+          "mention_rate": 0.25,
+          "avg_position": 2.2,
+          "avg_position_score": 0.6,
+          "avg_sentiment": 0.6,
+          "runs": 20,
+          "mentions": 5
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 37.7,
+      "mention_rate": 0.1,
+      "avg_position": 2.0,
+      "avg_position_score": 0.667,
+      "avg_sentiment": 1.0,
+      "runs": 20,
+      "mentions": 2,
+      "business": "Steelhead Coffee",
+      "consistency": "medium",
+      "consistency_spread": 0.2,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 37.7,
+          "mention_rate": 0.1,
+          "avg_position": 2.0,
+          "avg_position_score": 0.667,
+          "avg_sentiment": 1.0,
+          "runs": 20,
+          "mentions": 2
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 36.8,
+      "mention_rate": 0.15,
+      "avg_position": 3.0,
+      "avg_position_score": 0.511,
+      "avg_sentiment": 1.0,
+      "runs": 20,
+      "mentions": 3,
+      "business": "To Beans",
+      "consistency": "medium",
+      "consistency_spread": 0.229,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most.",
+        "When you are named you land around #3 in the list. Models tend to rank by how much corroborating detail they have. Add specifics to your listings and site: what you are known for, price range, and standout items."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 36.8,
+          "mention_rate": 0.15,
+          "avg_position": 3.0,
+          "avg_position_score": 0.511,
+          "avg_sentiment": 1.0,
+          "runs": 20,
+          "mentions": 3
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 35.1,
+      "mention_rate": 0.15,
+      "avg_position": 2.67,
+      "avg_position_score": 0.444,
+      "avg_sentiment": 1.0,
+      "runs": 20,
+      "mentions": 3,
+      "business": "Canyon Market & Cafe",
+      "consistency": "low",
+      "consistency_spread": 0.32,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most.",
+        "When you are named you land around #3 in the list. Models tend to rank by how much corroborating detail they have. Add specifics to your listings and site: what you are known for, price range, and standout items.",
+        "Your mentions are unstable, appearing in some runs and not others. That usually means thin evidence about you online. More independent sources saying the same things about you makes the mention stick."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 35.1,
+          "mention_rate": 0.15,
+          "avg_position": 2.67,
+          "avg_position_score": 0.444,
+          "avg_sentiment": 1.0,
+          "runs": 20,
+          "mentions": 3
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 32.5,
+      "mention_rate": 0.25,
+      "avg_position": 4.0,
+      "avg_position_score": 0.28,
+      "avg_sentiment": 0.7,
+      "runs": 20,
+      "mentions": 5,
+      "business": "Caf\u00e9 Central",
+      "consistency": "low",
+      "consistency_spread": 0.335,
+      "errors": 0,
+      "suggestions": [
+        "You show up in under half of answers. Get mentioned in content models trust: local 'best of' roundups, neighborhood blogs, and Reddit threads about your city. Those list-style pages are what models pull from most.",
+        "When you are named you land around #4 in the list. Models tend to rank by how much corroborating detail they have. Add specifics to your listings and site: what you are known for, price range, and standout items.",
+        "Your mentions are unstable, appearing in some runs and not others. That usually means thin evidence about you online. More independent sources saying the same things about you makes the mention stick."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 32.5,
+          "mention_rate": 0.25,
+          "avg_position": 4.0,
+          "avg_position_score": 0.28,
+          "avg_sentiment": 0.7,
+          "runs": 20,
+          "mentions": 5
+        }
+      },
+      "is_target": false
+    },
+    {
+      "score": 0.0,
+      "mention_rate": 0.0,
+      "avg_position": null,
+      "avg_position_score": 0.0,
+      "avg_sentiment": 0.0,
+      "runs": 20,
+      "mentions": 0,
+      "business": "Goodthing Coffee",
+      "consistency": "high",
+      "consistency_spread": 0.0,
+      "errors": 0,
+      "suggestions": [
+        "AI models never named you. Start with the basics they read from: claim and fill out your Google Business Profile, and get listed on Yelp and TripAdvisor with full hours, photos, and a description that uses your category and city in plain words."
+      ],
+      "by_model": {
+        "gemini-3.5-flash-lite": {
+          "score": 0.0,
+          "mention_rate": 0.0,
+          "avg_position": null,
+          "avg_position_score": 0.0,
+          "avg_sentiment": 0.0,
+          "runs": 20,
+          "mentions": 0
+        }
+      },
+      "is_target": true
+    }
+  ]
+}
